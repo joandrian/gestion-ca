@@ -147,6 +147,17 @@
             align-items: center;
             gap: 4px;
         }
+        .btn-delivery {
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
 
         /* Dashboard */
         .chart-container {
@@ -211,6 +222,7 @@
         /* Utilities */
         .badge { padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; }
         .badge-loss { background: #fee2e2; color: var(--danger); margin-left: 8px; }
+        .badge-delivery { background: #dcfce7; color: #166534; margin-left: 8px; }
         .fab {
             position: absolute; bottom: 80px; right: 20px; width: 56px; height: 56px;
             background: var(--primary); color: white; border-radius: 50%;
@@ -347,6 +359,49 @@
         </div>
     </div>
 
+    <!-- Auth Modal (PIN Code) -->
+    <div id="auth-modal" class="modal-overlay" style="z-index: 2000;">
+        <div class="modal-card" style="text-align: center;">
+            <h3 style="margin-top:0; color: var(--primary);">🔐 ViewCA Sécurité</h3>
+            <p style="color: var(--secondary); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                Entrez votre code PIN pour accéder à l'application.
+            </p>
+            <div id="auth-setup" style="display:none;">
+                <p style="font-size: 0.8rem; color: var(--accent); margin-bottom: 10px;">Première utilisation : Définissez un PIN</p>
+            </div>
+            <div class="numpad-display" id="auth-screen" style="font-size: 2rem; border-bottom: 2px solid var(--primary); margin-bottom: 20px; padding-bottom: 10px;">----</div>
+            <div class="numpad-grid" style="margin-top: 0;">
+                <button class="num-btn" onclick="auth.press(1)">1</button>
+                <button class="num-btn" onclick="auth.press(2)">2</button>
+                <button class="num-btn" onclick="auth.press(3)">3</button>
+                <button class="num-btn" onclick="auth.press(4)">4</button>
+                <button class="num-btn" onclick="auth.press(5)">5</button>
+                <button class="num-btn" onclick="auth.press(6)">6</button>
+                <button class="num-btn" onclick="auth.press(7)">7</button>
+                <button class="num-btn" onclick="auth.press(8)">8</button>
+                <button class="num-btn" onclick="auth.press(9)">9</button>
+                <button class="num-btn cancel" onclick="auth.clear()">C</button>
+                <button class="num-btn" onclick="auth.press(0)">0</button>
+                <button class="num-btn action" onclick="auth.validate()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delivery Modal -->
+    <div id="delivery-modal" class="modal-overlay">
+        <div class="modal-card">
+            <h3 style="margin-top:0; color: var(--primary);">Enregistrer une Livraison 🚚</h3>
+            <p id="delivery-prod-name" style="color:var(--text); font-weight:bold;">Produit</p>
+            <input type="hidden" id="delivery-prod-id">
+            <div class="form-group">
+                <label class="form-label">Quantité reçue</label>
+                <input type="number" id="delivery-qty" class="form-input" value="1" min="1">
+            </div>
+            <button class="btn-block" onclick="app.saveDelivery()">Valider la réception</button>
+            <button class="btn-block btn-secondary" onclick="app.closeDeliveryModal()" style="border:none;">Annuler</button>
+        </div>
+    </div>
+
     <!-- Loss Modal -->
     <div id="loss-modal" class="modal-overlay">
         <div class="modal-card">
@@ -455,7 +510,8 @@ const app = {
         products: [],
         inventory: {},
         previousStock: {},
-        losses: {}
+        losses: {},
+        deliveries: {} // NOUVEAU : Gestion Livraisons
     },
 
     formatMoney(amount) {
@@ -471,15 +527,16 @@ const app = {
         this.renderDashboard();
     },
 
-    // --- CHANGEMENT LOCALSTORAGE : CHARGEMENT ---
+    // --- LOCALSTORAGE ---
     loadData() {
         const storedData = localStorage.getItem('viewca_data');
         
         if (storedData) {
-            // Si des données existent déjà (PERSISTANCE), on les utilise
             this.data = JSON.parse(storedData);
+            // Migration simple si l'objet deliveries n'existe pas (ancienne version)
+            if (!this.data.deliveries) this.data.deliveries = {};
         } else {
-            // Sinon (Première visite), on charge les données de démo
+            // Données par défaut
             this.data.products = [
                 { id: 1, name: 'Pommes Golden (kg)', price: 4500, category: 'Fruits', stock: 20, minStock: 5 },
                 { id: 2, name: 'Baguette Bio', price: 800, category: 'Frais', stock: 15, minStock: 5 },
@@ -491,10 +548,10 @@ const app = {
             this.data.previousStock = { 1: 25, 2: 10, 3: 12, 4: 45, 5: 10 };
             this.data.inventory = { ...this.data.previousStock };
             this.data.losses = { 1: { qty: 2, reason: 'Péremption' } }; 
+            this.data.deliveries = {}; // Initialisation livraisons
         }
     },
 
-    // --- CHANGEMENT LOCALSTORAGE : SAUVEGARDE ---
     saveData() {
         localStorage.setItem('viewca_data', JSON.stringify(this.data));
     },
@@ -511,40 +568,53 @@ const app = {
     renderInventory() {
         const container = document.getElementById('inventory-list');
         container.innerHTML = '';
+        
         this.data.products.forEach(p => {
             const currentStock = this.data.inventory[p.id];
             const prevStock = this.data.previousStock[p.id];
             const loss = this.data.losses[p.id];
-            
-            const diff = prevStock - currentStock;
+            const delivery = this.data.deliveries[p.id];
+
             const lossQty = loss ? loss.qty : 0;
-            const sales = Math.max(0, diff - lossQty);
-            const ca = sales * p.price;
+            const deliveryQty = delivery ? delivery.qty : 0;
+
+            // FORMULE AVEC LIVRAISON : (Hier + Livraison) - Actuel - Pertes
+            const sales = (prevStock + deliveryQty) - currentStock - lossQty;
+            const finalSales = Math.max(0, sales); // Pas de ventes négatives
             
+            const ca = finalSales * p.price;
+            
+            // Badges visuels
             const lossHtml = loss ? `<span class="badge badge-loss">- ${loss.qty} (${loss.reason})</span>` : '';
+            const deliveryHtml = delivery ? `<span class="badge badge-delivery">+ ${delivery.qty} (Livré)</span>` : '';
 
             const card = document.createElement('div');
             card.className = 'product-card';
             card.innerHTML = `
                 <div class="product-header">
                     <div>
-                        <div class="product-name">${p.name} ${lossHtml}</div>
+                        <div class="product-name">${p.name} ${lossHtml} ${deliveryHtml}</div>
                         <div class="product-meta">${p.category} | Prix: ${this.formatMoney(p.price)}</div>
                     </div>
                 </div>
                 <div class="stock-control">
-                    <span class="stock-label">Stock Actuel (Cliquez pour modifier)</span>
+                    <span class="stock-label">Stock Actuel</span>
                     <div class="stock-val" onclick="numpad.open(${p.id})">${currentStock}</div>
                 </div>
                 <div style="margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
-                    <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:2px;">Calcul Auto : (Hier ${prevStock} - Actuel ${currentStock}) - Pertes ${lossQty}</div>
+                    <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:2px;">
+                        Calcul : (Hier ${prevStock} + ${deliveryQty} Livré) - Actuel ${currentStock} - Pertes ${lossQty}
+                    </div>
                     <div style="font-size:0.9rem; color:var(--success); font-weight:bold;">
-                        Ventes estimées : ${sales} unités = ${this.formatMoney(ca)}
+                        Ventes estimées : ${finalSales} unités = ${this.formatMoney(ca)}
                     </div>
                 </div>
-                <div style="display:flex; justify-content:flex-end; margin-top:5px;">
+                <div style="display:flex; justify-content:space-between; margin-top:5px; gap:10px;">
                      <button class="btn-loss" onclick="app.openLossModal(${p.id})">
-                        <span>⚠️ Signaler Perte</span>
+                        <span>⚠️ Perte</span>
+                    </button>
+                    <button class="btn-delivery" onclick="app.openDeliveryModal(${p.id})">
+                        <span>+ Livraison</span>
                     </button>
                 </div>
             `;
@@ -554,9 +624,37 @@ const app = {
     updateStock(id, value) {
         this.data.inventory[id] = parseInt(value);
         this.renderInventory();
-        this.saveData(); // AJOUT LOCALSTORAGE
+        this.saveData();
     },
 
+    // --- GESTION LIVRAISONS ---
+    openDeliveryModal(id) {
+        const p = this.data.products.find(x => x.id === id);
+        document.getElementById('delivery-prod-name').textContent = p.name;
+        document.getElementById('delivery-prod-id').value = id;
+        document.getElementById('delivery-qty').value = 1;
+        document.getElementById('delivery-modal').classList.add('open');
+    },
+    closeDeliveryModal() { document.getElementById('delivery-modal').classList.remove('open'); },
+    saveDelivery() {
+        const id = parseInt(document.getElementById('delivery-prod-id').value);
+        const qty = parseInt(document.getElementById('delivery-qty').value);
+        
+        if(qty > 0) {
+            if(this.data.deliveries[id]) {
+                this.data.deliveries[id].qty += qty;
+            } else {
+                this.data.deliveries[id] = { qty: qty };
+            }
+            
+            this.showToast(`Livraison enregistrée : +${qty} unité(s)`);
+            this.renderInventory();
+            this.closeDeliveryModal();
+            this.saveData();
+        }
+    },
+
+    // --- GESTION PERTES ---
     openLossModal(id) {
         const p = this.data.products.find(x => x.id === id);
         document.getElementById('loss-prod-name').textContent = p.name;
@@ -573,11 +671,11 @@ const app = {
             this.showToast(`Perte enregistrée : ${qty} unité(s)`);
             this.renderInventory();
             this.closeLossModal();
-            this.saveData(); // AJOUT LOCALSTORAGE
+            this.saveData();
         }
     },
 
-    // CATALOG CRUD
+    // --- CATALOG CRUD ---
     renderCatalog() {
         const list = document.getElementById('catalog-list');
         list.innerHTML = '';
@@ -615,7 +713,7 @@ const app = {
             document.getElementById('new-prod-price').value = '';
             this.showToast('Produit ajouté');
             this.renderCatalog();
-            this.saveData(); // AJOUT LOCALSTORAGE
+            this.saveData();
         }
     },
     deleteProduct(id) {
@@ -624,10 +722,11 @@ const app = {
             delete this.data.inventory[id];
             delete this.data.previousStock[id];
             delete this.data.losses[id];
+            delete this.data.deliveries[id];
             this.showToast('Produit supprimé');
             this.renderCatalog();
             this.renderInventory();
-            this.saveData(); // AJOUT LOCALSTORAGE
+            this.saveData();
         }
     },
     openEditModal(id) {
@@ -652,7 +751,7 @@ const app = {
                 this.renderCatalog();
                 this.renderInventory();
                 this.closeEditModal();
-                this.saveData(); // AJOUT LOCALSTORAGE
+                this.saveData();
             }
         }
     },
@@ -667,7 +766,11 @@ const app = {
             const curr = this.data.inventory[p.id] || 0;
             const lossObj = this.data.losses[p.id];
             const lossQty = lossObj ? lossObj.qty : 0;
-            const sales = Math.max(0, (prev - curr) - lossQty);
+            const deliveryObj = this.data.deliveries[p.id];
+            const deliveryQty = deliveryObj ? deliveryObj.qty : 0;
+            
+            // Formule Dashboard avec livraison
+            const sales = Math.max(0, (prev + deliveryQty) - curr - lossQty);
             
             totalCA += sales * p.price;
             totalLossValue += lossQty * p.price;
@@ -717,7 +820,69 @@ const numpad = {
     }
 };
 
-document.addEventListener('DOMContentLoaded', () => { app.init(); });
+/**
+ * AUTHENTICATION LOGIC (PIN CODE)
+ */
+const auth = {
+    currentPin: '',
+    isSetup: false,
+
+    init() {
+        const savedPin = localStorage.getItem('viewca_pin');
+        
+        if (!savedPin) {
+            this.isSetup = true;
+            document.getElementById('auth-setup').style.display = 'block';
+        }
+        
+        document.getElementById('auth-modal').classList.add('open');
+    },
+
+    press(num) {
+        if (this.currentPin.length < 4) {
+            this.currentPin += num;
+            this.updateScreen();
+        }
+    },
+
+    clear() {
+        this.currentPin = '';
+        this.updateScreen();
+    },
+
+    updateScreen() {
+        const masked = '*'.repeat(this.currentPin.length);
+        document.getElementById('auth-screen').textContent = masked || '----';
+    },
+
+    validate() {
+        if (this.currentPin.length !== 4) {
+            alert("Le PIN doit comporter 4 chiffres.");
+            return;
+        }
+
+        const savedPin = localStorage.getItem('viewca_pin');
+
+        if (this.isSetup) {
+            localStorage.setItem('viewca_pin', this.currentPin);
+            this.unlock();
+        } else {
+            if (this.currentPin === savedPin) {
+                this.unlock();
+            } else {
+                alert("Code PIN incorrect !");
+                this.clear();
+            }
+        }
+    },
+
+    unlock() {
+        document.getElementById('auth-modal').classList.remove('open');
+        app.init(); 
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => { auth.init(); });
 
 // Service Worker Registration (PWA)
 if ('serviceWorker' in navigator) {
