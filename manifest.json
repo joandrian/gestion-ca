@@ -1,0 +1,21 @@
+{
+    "name": "ViewCA",
+    "short_name": "ViewCA",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#f1f5f9",
+    "theme_color": "#006A4E",
+    "orientation": "portrait",
+    "icons": [
+      {
+        "src": "https://picsum.photos/seed/viewca192/192/192",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      {
+        "src": "https://picsum.photos/seed/viewca512/512/512",
+        "sizes": "512x512",
+        "type": "image/png"
+      }
+    ]
+  }
