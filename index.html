@@ -471,19 +471,32 @@ const app = {
         this.renderDashboard();
     },
 
+    // --- CHANGEMENT LOCALSTORAGE : CHARGEMENT ---
     loadData() {
-        // Données de démo pour ViewCA
-        this.data.products = [
-            { id: 1, name: 'Pommes Golden (kg)', price: 4500, category: 'Fruits', stock: 20, minStock: 5 },
-            { id: 2, name: 'Baguette Bio', price: 800, category: 'Frais', stock: 15, minStock: 5 },
-            { id: 3, name: 'Lait 1L', price: 3500, category: 'Frais', stock: 10, minStock: 4 },
-            { id: 4, name: 'Eau Minérale 1.5L', price: 1200, category: 'Boissons', stock: 50, minStock: 10 },
-            { id: 5, name: 'Chips 150g', price: 2500, category: 'Epicerie', stock: 8, minStock: 3 }
-        ];
+        const storedData = localStorage.getItem('viewca_data');
+        
+        if (storedData) {
+            // Si des données existent déjà (PERSISTANCE), on les utilise
+            this.data = JSON.parse(storedData);
+        } else {
+            // Sinon (Première visite), on charge les données de démo
+            this.data.products = [
+                { id: 1, name: 'Pommes Golden (kg)', price: 4500, category: 'Fruits', stock: 20, minStock: 5 },
+                { id: 2, name: 'Baguette Bio', price: 800, category: 'Frais', stock: 15, minStock: 5 },
+                { id: 3, name: 'Lait 1L', price: 3500, category: 'Frais', stock: 10, minStock: 4 },
+                { id: 4, name: 'Eau Minérale 1.5L', price: 1200, category: 'Boissons', stock: 50, minStock: 10 },
+                { id: 5, name: 'Chips 150g', price: 2500, category: 'Epicerie', stock: 8, minStock: 3 }
+            ];
 
-        this.data.previousStock = { 1: 25, 2: 10, 3: 12, 4: 45, 5: 10 };
-        this.data.inventory = { ...this.data.previousStock };
-        this.data.losses = { 1: { qty: 2, reason: 'Péremption' } }; 
+            this.data.previousStock = { 1: 25, 2: 10, 3: 12, 4: 45, 5: 10 };
+            this.data.inventory = { ...this.data.previousStock };
+            this.data.losses = { 1: { qty: 2, reason: 'Péremption' } }; 
+        }
+    },
+
+    // --- CHANGEMENT LOCALSTORAGE : SAUVEGARDE ---
+    saveData() {
+        localStorage.setItem('viewca_data', JSON.stringify(this.data));
     },
 
     switchView(viewName, btn) {
@@ -541,6 +554,7 @@ const app = {
     updateStock(id, value) {
         this.data.inventory[id] = parseInt(value);
         this.renderInventory();
+        this.saveData(); // AJOUT LOCALSTORAGE
     },
 
     openLossModal(id) {
@@ -558,8 +572,9 @@ const app = {
             this.data.losses[id] = { qty, reason };
             this.showToast(`Perte enregistrée : ${qty} unité(s)`);
             this.renderInventory();
+            this.closeLossModal();
+            this.saveData(); // AJOUT LOCALSTORAGE
         }
-        this.closeLossModal();
     },
 
     // CATALOG CRUD
@@ -600,6 +615,7 @@ const app = {
             document.getElementById('new-prod-price').value = '';
             this.showToast('Produit ajouté');
             this.renderCatalog();
+            this.saveData(); // AJOUT LOCALSTORAGE
         }
     },
     deleteProduct(id) {
@@ -611,6 +627,7 @@ const app = {
             this.showToast('Produit supprimé');
             this.renderCatalog();
             this.renderInventory();
+            this.saveData(); // AJOUT LOCALSTORAGE
         }
     },
     openEditModal(id) {
@@ -635,6 +652,7 @@ const app = {
                 this.renderCatalog();
                 this.renderInventory();
                 this.closeEditModal();
+                this.saveData(); // AJOUT LOCALSTORAGE
             }
         }
     },
